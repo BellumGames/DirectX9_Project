@@ -64,6 +64,52 @@ VOID CleanDInput();
 LRESULT WINAPI MsgProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
 INT WINAPI WinMain(HINSTANCE hInst, HINSTANCE, LPSTR, INT);
 
+struct CUSTOMVERTEX
+{
+    FLOAT x, y, z; //Position
+    FLOAT tu, tv;   // The texture coordinates
+};
+
+#define D3DFVF_CUSTOMVERTEX (D3DFVF_XYZ|D3DFVF_DIFFUSE|D3DFVF_TEX1)
+
+CUSTOMVERTEX SkyBox[24] = {
+    //Fata lateral stanga
+    { -1.0f, -1.0f, -1.0f, 1, 0 }, //rosu
+    { -1.0f, 1.0f, -1.0f, 1, 1 }, //galben
+    { -1.0f, -1.0f, 1.0f, 0, 0 }, //albastru
+    { -1.0f, 1.0f, 1.0f, 0, 1 },  //verde
+
+    //Fata din fata
+    { 1.0f, -1.0f, 1.0f, 0, 0 }, //rosu
+    { 1.0f, 1.0f, 1.0f, 0, 1 }, //galben
+    { -1.0f, -1.0f, 1.0f, 1, 0 }, //albastru
+    { -1.0f, 1.0f, 1.0f, 1, 1 },  //verde
+
+    //Fata laterala dreapta
+    { 1.0f, -1.0f, 1.0f, 1, 0 }, //rosu
+    { 1.0f, 1.0f, 1.0f, 1, 1 }, //galben
+    { 1.0f, -1.0f, -1.0f, 0, 0 }, //albastru
+    { -1.0f, 1.0f, 1.0f, 0, 1 },  //verde
+
+    //Fata din spate
+    { 1.0f, -1.0f, -1.0f, 1, 0 }, //rosu
+    { 1.0f, 1.0f, -1.0f, 1, 1 }, //galben
+    { -1.0f, -1.0f, -1.0f, 0, 0 }, //albastru
+    { -1.0f, 1.0f, -1.0f, 0, 1 },  //verde
+
+    //Fata sus
+    { -1.0f, 1.0f, -1.0f, 1, 0 }, //rosu
+    { 1.0f, 1.0f, -1.0f, 1, 1 }, //galben
+    { -1.0f, 1.0f, 1.0f, 0, 0 }, //albastru
+    { 1.0f, 1.0f, 1.0f, 0, 1 },  //verde
+
+    //Fata jos
+    { 1.0f, -1.0f, -1.0f, 1, 0 }, //rosu
+    { -1.0f, -1.0f, -1.0f, 1, 1 }, //galben
+    { 1.0f, -1.0f, 1.0f, 0, 0 }, //albastru
+    { -1.0f, -1.0f, 1.0f, 0, 1 }  //verde
+};
+
 //-----------------------------------------------------------------------------
 // Name: InitD3D()
 // Desc: Initializes Direct3D
@@ -187,26 +233,6 @@ HRESULT InitDInput(HINSTANCE hInstance, HWND hWnd)
     g_pDinmouse->SetCooperativeLevel(hWnd, DISCL_EXCLUSIVE | DISCL_FOREGROUND);
 
     return S_OK;
-}
-
-void HandleGraphEvent()
-{
-    // Get all the events   
-    long evCode;
-    LONG_PTR param1, param2;
-
-    while (SUCCEEDED(mediaEvent->GetEvent(&evCode, &param1, &param2, 0)))
-    {
-        mediaEvent->FreeEventParams(evCode, param1, param2);
-        switch (evCode)
-        {
-        case EC_COMPLETE:  // Fall through.   
-        case EC_USERABORT: // Fall through.   
-        case EC_ERRORABORT:
-            PostQuitMessage(0);
-            return;
-        }
-    }
 }
 
 //-----------------------------------------------------------------------------
@@ -492,17 +518,12 @@ LRESULT WINAPI MsgProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam)
 {
     switch (msg)
     {
-    case WM_DESTROY:
-        Cleanup();
-        CleanDInput();
-        PostQuitMessage(0);
-        return 0;
-
-    case WM_GRAPHNOTIFY:
-        HandleGraphEvent();
-        return 0;
+        case WM_DESTROY:
+            Cleanup();
+            CleanDInput();
+            PostQuitMessage(0);
+            return 0;
     }
-
     return DefWindowProc(hWnd, msg, wParam, lParam);
 }
 
@@ -521,7 +542,7 @@ INT WINAPI WinMain(HINSTANCE hInst, HINSTANCE, LPSTR, INT)
 
     // Create the application's window
     HWND hWnd = CreateWindow("D3D Tutorial", "Bucur Dan-Alexandru: Proiect la SM",
-        WS_OVERLAPPEDWINDOW, 100, 100, 300, 300,
+        WS_OVERLAPPEDWINDOW, 100, 100, 800, 800,
         GetDesktopWindow(), NULL, wc.hInstance, NULL);
 
     //!!!!!! This is very important and must be called prior to any initialization of DirectShow
