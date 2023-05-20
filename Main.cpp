@@ -1,23 +1,35 @@
-
 #include <Windows.h>
 #include <mmsystem.h>
 #include <d3dx9.h>
+#include <dshow.h>   
 #include "Camera.h"
 
-
+//We define an event id 
+#define WM_GRAPHNOTIFY  WM_APP + 1
 
 //-----------------------------------------------------------------------------
 // Global variables
 //-----------------------------------------------------------------------------
-LPDIRECT3D9             D3D = NULL; // Used to create the D3DDevice
-LPDIRECT3DDEVICE9       d3dDevice = NULL; // Our rendering device
+
+LPDIRECT3D9             g_pD3D = NULL; // Used to create the D3DDevice   
+LPDIRECT3DDEVICE9       g_pd3dDevice = NULL; // Our rendering device  
 
 LPD3DXMESH              Mesh = NULL; // Our mesh object in sysmem
 D3DMATERIAL9* MeshMaterials = NULL; // Materials for our mesh
 LPDIRECT3DTEXTURE9* MeshTextures = NULL; // Textures for our mesh
 DWORD                   NumMaterials = 0L;   // Number of mesh materials
-CXCamera* camera;
+CXCamera* camera; 
 
+IGraphBuilder* graphBuilder = NULL;
+//Help us to start/stop the play
+IMediaControl* mediaControl = NULL;
+//We receie events in case something happened - during playing, stoping, errors etc..
+IMediaEventEx* mediaEvent = NULL;
+//We can use to fast forward, revert etc..
+IMediaSeeking* mediaSeeking = NULL;
+
+HWND hWnd;
+HDC hdc;
 
 //-----------------------------------------------------------------------------
 // Name: InitD3D()
@@ -26,7 +38,7 @@ CXCamera* camera;
 HRESULT InitD3D(HWND hWnd)
 {
     // Create the D3D object.
-    if (NULL == (D3D = Direct3DCreate9(D3D_SDK_VERSION)))
+    if (NULL == (g_pD3D = Direct3DCreate9(D3D_SDK_VERSION)))
         return E_FAIL;
 
     // Set up the structure used to create the D3DDevice. Since we are now
@@ -40,30 +52,74 @@ HRESULT InitD3D(HWND hWnd)
     d3dpp.AutoDepthStencilFormat = D3DFMT_D16;
 
     // Create the D3DDevice
-    if (FAILED(D3D->CreateDevice(D3DADAPTER_DEFAULT, D3DDEVTYPE_HAL, hWnd,
+    if (FAILED(g_pD3D->CreateDevice(D3DADAPTER_DEFAULT, D3DDEVTYPE_HAL, hWnd,
         D3DCREATE_SOFTWARE_VERTEXPROCESSING,
-        &d3dpp, &d3dDevice)))
+        &d3dpp, &g_pd3dDevice)))
     {
-        if (FAILED(D3D->CreateDevice(D3DADAPTER_DEFAULT, D3DDEVTYPE_REF, hWnd,
+        if (FAILED(g_pD3D->CreateDevice(D3DADAPTER_DEFAULT, D3DDEVTYPE_REF, hWnd,
             D3DCREATE_SOFTWARE_VERTEXPROCESSING,
-            &d3dpp, &d3dDevice)))
+            &d3dpp, &g_pd3dDevice)))
             return E_FAIL;
     }
 
-    // Turn on the zbuffer
-    d3dDevice->SetRenderState(D3DRS_ZENABLE, TRUE);
+    // Turn on the zbuffer`
+    g_pd3dDevice->SetRenderState(D3DRS_ZENABLE, TRUE);
 
     // Turn on ambient lighting 
-    d3dDevice->SetRenderState(D3DRS_AMBIENT, 0xffffffff);
+    g_pd3dDevice->SetRenderState(D3DRS_AMBIENT, 0xffffffff);
 
 
     return S_OK;
 }
 
+HRESULT InitDirectShow(HWND hWnd)
+{
+    //Create Filter Graph   
+    HRESULT hr = CoCreateInstance(CLSID_FilterGraph, NULL,
+        CLSCTX_INPROC_SERVER, IID_IGraphBuilder, (void**)&graphBuilder);
+
+    //Create Media Control and Events   
+    hr = graphBuilder->QueryInterface(IID_IMediaControl, (void**)&mediaControl);
+    hr = graphBuilder->QueryInterface(IID_IMediaEventEx, (void**)&mediaEvent);
+    hr = graphBuilder->QueryInterface(IID_IMediaSeeking, (void**)&mediaSeeking);
+
+    //Load a file
+    hr = graphBuilder->RenderFile(L"tiger.avi", NULL);
+
+    //Set window for events  - basically we tell our event in case you raise an event use the following event id.
+    mediaEvent->SetNotifyWindow((OAHWND)hWnd, WM_GRAPHNOTIFY, 0);
+
+    //Play media control   
+    mediaControl->Run();
+
+
+    return S_OK;
+}
+
+void HandleGraphEvent()
+{
+    // Get all the events   
+    long evCode;
+    LONG_PTR param1, param2;
+
+    while (SUCCEEDED(mediaEvent->GetEvent(&evCode, &param1, &param2, 0)))
+    {
+        mediaEvent->FreeEventParams(evCode, param1, param2);
+        switch (evCode)
+        {
+        case EC_COMPLETE:  // Fall through.   
+        case EC_USERABORT: // Fall through.   
+        case EC_ERRORABORT:
+            PostQuitMessage(0);
+            return;
+        }
+    }
+}
+
 
 void InitiateCamera()
 {
-    camera = new CXCamera(d3dDevice);
+    camera = new CXCamera(g_pd3dDevice);
 
     // Set up our view matrix. A view matrix can be defined given an eye point,
     // a point to lookat, and a direction for which way is up. Here, we set the
@@ -87,13 +143,13 @@ HRESULT InitGeometry()
 
     // Load the mesh from the specified file
     if (FAILED(D3DXLoadMeshFromX("PanzerTiger.x", D3DXMESH_SYSTEMMEM,
-        d3dDevice, NULL,
+        g_pd3dDevice, NULL,
         &pD3DXMtrlBuffer, NULL, &NumMaterials,
         &Mesh)))
     {
         // If model is not in current folder, try parent folder
         if (FAILED(D3DXLoadMeshFromX("..\\PanzerTiger.x", D3DXMESH_SYSTEMMEM,
-            d3dDevice, NULL,
+            g_pd3dDevice, NULL,
             &pD3DXMtrlBuffer, NULL, &NumMaterials,
             &Mesh)))
         {
@@ -121,7 +177,7 @@ HRESULT InitGeometry()
             lstrlen(d3dxMaterials[i].pTextureFilename) > 0)
         {
             // Create the texture
-            if (FAILED(D3DXCreateTextureFromFile(d3dDevice,
+            if (FAILED(D3DXCreateTextureFromFile(g_pd3dDevice,
                 d3dxMaterials[i].pTextureFilename,
                 &MeshTextures[i])))
             {
@@ -132,7 +188,7 @@ HRESULT InitGeometry()
                 lstrcpyn(strTexture, strPrefix, MAX_PATH);
                 lstrcpyn(strTexture + lenPrefix, d3dxMaterials[i].pTextureFilename, MAX_PATH - lenPrefix);
                 // If texture is not in current folder, try parent folder
-                if (FAILED(D3DXCreateTextureFromFile(d3dDevice,
+                if (FAILED(D3DXCreateTextureFromFile(g_pd3dDevice,
                     strTexture,
                     &MeshTextures[i])))
                 {
@@ -192,11 +248,20 @@ VOID Cleanup()
     if (Mesh != NULL)
         Mesh->Release();
 
-    if (d3dDevice != NULL)
-        d3dDevice->Release();
+    if (g_pd3dDevice != NULL)
+        g_pd3dDevice->Release();
 
-    if (D3D != NULL)
-        D3D->Release();
+    if (g_pD3D != NULL)
+        g_pD3D->Release();
+
+    if (graphBuilder)
+        graphBuilder->Release();
+
+    if (mediaControl)
+        mediaControl->Release();
+
+    if (mediaEvent)
+        mediaEvent->Release();
 }
 
 
@@ -205,16 +270,16 @@ VOID SetupWorldMatrix()
     // For our world matrix, we will just leave it as the identity
     D3DXMATRIXA16 matWorld;
     D3DXMatrixRotationY(&matWorld, timeGetTime() / 1000.0f);
-    d3dDevice->SetTransform(D3DTS_WORLD, &matWorld);
+    g_pd3dDevice->SetTransform(D3DTS_WORLD, &matWorld);
 }
 
 float distance;
 int direction = 1;//1 forward, -1 backward
 int maximumStepDirection = 300;
 int currentStep = 0;
+
 void SetupViewMatrix()
 {
-
     //Below is a simulation of mooving forward - backwards. This is done by calling the camera method;
     distance = 0.01 * direction;
     currentStep = currentStep + direction;
@@ -242,7 +307,7 @@ void SetupProjectionMatrix()
     // what distances geometry should be no longer be rendered).
     D3DXMATRIXA16 matProj;
     D3DXMatrixPerspectiveFovLH(&matProj, D3DX_PI / 4, 1.0f, 1.0f, 100.0f);
-    d3dDevice->SetTransform(D3DTS_PROJECTION, &matProj);
+    g_pd3dDevice->SetTransform(D3DTS_PROJECTION, &matProj);
 }
 
 //-----------------------------------------------------------------------------
@@ -251,13 +316,9 @@ void SetupProjectionMatrix()
 //-----------------------------------------------------------------------------
 VOID SetupMatrices()
 {
-
     SetupWorldMatrix();
-
     SetupViewMatrix();
-
     SetupProjectionMatrix();
-
 }
 
 //-----------------------------------------------------------------------------
@@ -267,11 +328,11 @@ VOID SetupMatrices()
 VOID Render()
 {
     // Clear the backbuffer and the zbuffer
-    d3dDevice->Clear(0, NULL, D3DCLEAR_TARGET | D3DCLEAR_ZBUFFER,
+    g_pd3dDevice->Clear(0, NULL, D3DCLEAR_TARGET | D3DCLEAR_ZBUFFER,
         D3DCOLOR_XRGB(0, 0, 255), 1.0f, 0);
 
     // Begin the scene
-    if (SUCCEEDED(d3dDevice->BeginScene()))
+    if (SUCCEEDED(g_pd3dDevice->BeginScene()))
     {
         // Setup the world, view, and projection matrices
         SetupMatrices();
@@ -281,19 +342,19 @@ VOID Render()
         for (DWORD i = 0; i < NumMaterials; i++)
         {
             // Set the material and texture for this subset
-            d3dDevice->SetMaterial(&MeshMaterials[i]);
-            d3dDevice->SetTexture(0, MeshTextures[i]);
+            g_pd3dDevice->SetMaterial(&MeshMaterials[i]);
+            g_pd3dDevice->SetTexture(0, MeshTextures[i]);
 
             // Draw the mesh subset
             Mesh->DrawSubset(i);
         }
 
         // End the scene
-        d3dDevice->EndScene();
+        g_pd3dDevice->EndScene();
     }
 
     // Present the backbuffer contents to the display
-    d3dDevice->Present(NULL, NULL, NULL, NULL);
+    g_pd3dDevice->Present(NULL, NULL, NULL, NULL);
 }
 
 
@@ -310,6 +371,10 @@ LRESULT WINAPI MsgProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam)
     case WM_DESTROY:
         Cleanup();
         PostQuitMessage(0);
+        return 0;
+
+    case WM_GRAPHNOTIFY:
+        HandleGraphEvent();
         return 0;
     }
 
@@ -330,9 +395,14 @@ INT WINAPI WinMain(HINSTANCE hInst, HINSTANCE, LPSTR, INT)
     RegisterClassEx(&wc);
 
     // Create the application's window
-    HWND hWnd = CreateWindow("D3D Tutorial", "D3D Tutorial 06: Meshes",
+    HWND hWnd = CreateWindow("D3D Tutorial", "Bucur Dan-Alexandru: Proiect la SM",
         WS_OVERLAPPEDWINDOW, 100, 100, 300, 300,
         GetDesktopWindow(), NULL, wc.hInstance, NULL);
+
+    //!!!!!! This is very important and must be called prior to any initialization of DirectShow
+    HRESULT hr = CoInitialize(NULL);
+
+    hdc = GetDC(hWnd);
 
     // Initialize Direct3D
     if (SUCCEEDED(InitD3D(hWnd)))
@@ -340,6 +410,10 @@ INT WINAPI WinMain(HINSTANCE hInst, HINSTANCE, LPSTR, INT)
         // Create the scene geometry
         if (SUCCEEDED(InitGeometry()))
         {
+            //Init video
+            if (FAILED(InitDirectShow(hWnd)))
+                return 0;
+
             // Show the window
             ShowWindow(hWnd, SW_SHOWDEFAULT);
             UpdateWindow(hWnd);
@@ -354,15 +428,16 @@ INT WINAPI WinMain(HINSTANCE hInst, HINSTANCE, LPSTR, INT)
                     TranslateMessage(&msg);
                     DispatchMessage(&msg);
                 }
-                else
+                else 
+                {
                     Render();
+                }
             }
         }
     }
 
+    CoUninitialize();
+
     UnregisterClass("D3D Tutorial", wc.hInstance);
     return 0;
 }
-
-
-
