@@ -1,2 +1,0 @@
-X file este extensia pe care trebuie sa o utilizam cand exportam obiectul complex(tigrul) pe care il facem in alt program de exemplu Blender
-De verificat la proiectele existente ce se afla in x file
