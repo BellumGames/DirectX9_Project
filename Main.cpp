@@ -2,10 +2,17 @@
 #include <mmsystem.h>
 #include <d3dx9.h>
 #include <dshow.h>   
+#include <dinput.h>
 #include "Camera.h"
 
 //We define an event id 
 #define WM_GRAPHNOTIFY  WM_APP + 1
+
+//Make sure the libraries d3d9.lib and d3dx9.lib are linked
+#pragma comment (lib, "d3d9.lib")
+#pragma comment (lib, "d3dx9.lib")
+#pragma comment (lib, "dinput8.lib")
+#pragma comment (lib, "dxguid.lib")
 
 //-----------------------------------------------------------------------------
 // Global variables
@@ -30,6 +37,32 @@ IMediaSeeking* mediaSeeking = NULL;
 
 HWND hWnd;
 HDC hdc;
+
+LPDIRECTINPUT8			g_pDin;							// the pointer to our DirectInput interface
+LPDIRECTINPUTDEVICE8	g_pDinKeyboard;					// the pointer to the keyboard device
+
+LPDIRECT3DSURFACE9		g_pSurface = NULL;			// Our surface on which we load the image
+LPDIRECT3DSURFACE9		g_pBackBuffer = NULL;			// The back buffer
+
+LPCTSTR					g_Path = "crosshair.jpg"; // The path to the image
+D3DXIMAGE_INFO			g_Info;							// Here we will keep the information read from the image file
+
+POINT					g_SurfacePosition;				// The position of the surface
+BYTE					g_Keystate[256];				// the storage for the key-information
+
+LPDIRECTINPUTDEVICE8	g_pDinmouse;					// the pointer to the mouse device
+DIMOUSESTATE			g_pMousestate;					// the storage for the mouse-information
+
+HRESULT InitD3D(HWND hWnd);
+HRESULT InitDInput(HINSTANCE hInstance, HWND hWnd);
+
+VOID DetectInput();
+VOID Render();
+VOID Cleanup();
+VOID CleanDInput();
+
+LRESULT WINAPI MsgProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
+INT WINAPI WinMain(HINSTANCE hInst, HINSTANCE, LPSTR, INT);
 
 //-----------------------------------------------------------------------------
 // Name: InitD3D()
@@ -62,6 +95,32 @@ HRESULT InitD3D(HWND hWnd)
             return E_FAIL;
     }
 
+    // Read the information from the image
+    if (D3DXGetImageInfoFromFile(g_Path, &g_Info) == D3D_OK) {
+
+        // Create a surface using the information read from the image
+        g_pd3dDevice->CreateOffscreenPlainSurface(g_Info.Width, g_Info.Height, g_Info.Format, D3DPOOL_SYSTEMMEM, &g_pSurface, NULL);
+
+        // Get the backbuffer so we can copy the contents of our surface
+        g_pd3dDevice->GetBackBuffer(0, 0, D3DBACKBUFFER_TYPE_MONO, &g_pBackBuffer);
+
+        // Load the image in our surface
+        if (D3DXLoadSurfaceFromFile(g_pSurface, NULL, NULL, g_Path, NULL, D3DX_DEFAULT, 0, NULL) != D3D_OK) {
+
+            //If the image could not be loaded show an error message and exit
+            MessageBox(NULL, "An exception occured while loading image info from file", "Error", 0);
+            return E_FAIL;
+
+        }
+    }
+    else {
+
+        // If the information could not be read from the file show an error message and exit
+        MessageBox(NULL, "An exception occured while loading image info from file", "Error", 0);
+        return E_FAIL;
+
+    }
+
     // Turn on the zbuffer`
     g_pd3dDevice->SetRenderState(D3DRS_ZENABLE, TRUE);
 
@@ -89,9 +148,43 @@ HRESULT InitDirectShow(HWND hWnd)
     //Set window for events  - basically we tell our event in case you raise an event use the following event id.
     mediaEvent->SetNotifyWindow((OAHWND)hWnd, WM_GRAPHNOTIFY, 0);
 
-    //Play media control   
-    mediaControl->Run();
+    return S_OK;
+}
 
+//-----------------------------------------------------------------------------
+// Name: InitDInput(HINSTANCE hInstance, HWND hWnd)
+// Desc: Initializes DirectInput
+//-----------------------------------------------------------------------------
+HRESULT InitDInput(HINSTANCE hInstance, HWND hWnd)
+{
+    // create the DirectInput interface
+    DirectInput8Create(hInstance,    // the handle to the application
+        DIRECTINPUT_VERSION,    // the compatible version
+        IID_IDirectInput8,    // the DirectInput interface version
+        (void**)&g_pDin,    // the pointer to the interface
+        NULL);    // COM stuff, so we'll set it to NULL
+
+    // create the keyboard device
+    g_pDin->CreateDevice(GUID_SysKeyboard,    // the default keyboard ID being used
+        &g_pDinKeyboard,    // the pointer to the device interface
+        NULL);    // COM stuff, so we'll set it to NULL
+
+    // create the mouse device
+    g_pDin->CreateDevice(GUID_SysMouse,
+        &g_pDinmouse,  // the pointer to the device interface
+        NULL); // COM stuff, so we'll set it to NULL
+
+    // set the data format to keyboard format
+    g_pDinKeyboard->SetDataFormat(&c_dfDIKeyboard);
+
+    // set the data format to mouse format
+    g_pDinmouse->SetDataFormat(&c_dfDIMouse);
+
+    // set the control we will have over the keyboard
+    g_pDinKeyboard->SetCooperativeLevel(hWnd, DISCL_NONEXCLUSIVE | DISCL_FOREGROUND);
+
+    // set the control we will have over the mouse
+    g_pDinmouse->SetCooperativeLevel(hWnd, DISCL_EXCLUSIVE | DISCL_FOREGROUND);
 
     return S_OK;
 }
@@ -114,6 +207,34 @@ void HandleGraphEvent()
             return;
         }
     }
+}
+
+//-----------------------------------------------------------------------------
+// Name: DetectInput(void)
+// Desc: This is the function that gets the latest input data
+//-----------------------------------------------------------------------------
+VOID DetectInput()
+{
+    // get access if we don't have it already
+    g_pDinKeyboard->Acquire();
+    g_pDinmouse->Acquire();
+
+    // get the input data
+    g_pDinKeyboard->GetDeviceState(256, (LPVOID)g_Keystate);
+    g_pDinmouse->GetDeviceState(sizeof(DIMOUSESTATE), (LPVOID)&g_pMousestate);
+
+
+}
+
+//-----------------------------------------------------------------------------
+// Name: CleanDInput(void)
+// Desc: This is the function that closes DirectInput
+//-----------------------------------------------------------------------------
+VOID CleanDInput()
+{
+    g_pDinKeyboard->Unacquire();    // make sure the keyboard is unacquired
+    g_pDinmouse->Unacquire();    // make sure the mouse in unacquired
+    g_pDin->Release();    // close DirectInput before exiting
 }
 
 
@@ -337,6 +458,9 @@ VOID Render()
         // Setup the world, view, and projection matrices
         SetupMatrices();
 
+        //Copy the contents of the surface into the backbuffer
+        g_pd3dDevice->UpdateSurface(g_pSurface, NULL, g_pBackBuffer, &g_SurfacePosition);
+
         // Meshes are divided into subsets, one for each material. Render them in
         // a loop
         for (DWORD i = 0; i < NumMaterials; i++)
@@ -370,6 +494,7 @@ LRESULT WINAPI MsgProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam)
     {
     case WM_DESTROY:
         Cleanup();
+        CleanDInput();
         PostQuitMessage(0);
         return 0;
 
@@ -407,6 +532,8 @@ INT WINAPI WinMain(HINSTANCE hInst, HINSTANCE, LPSTR, INT)
     // Initialize Direct3D
     if (SUCCEEDED(InitD3D(hWnd)))
     {
+        InitDInput(hInst, hWnd);
+
         // Create the scene geometry
         if (SUCCEEDED(InitGeometry()))
         {
@@ -430,7 +557,20 @@ INT WINAPI WinMain(HINSTANCE hInst, HINSTANCE, LPSTR, INT)
                 }
                 else 
                 {
+                    DetectInput();    // update the input data before rendering
                     Render();
+
+                    g_SurfacePosition.x += g_pMousestate.lX;
+                    g_SurfacePosition.y += g_pMousestate.lY;
+
+                    if (g_Keystate[DIK_ESCAPE] & 0x80) {
+                        PostMessage(hWnd, WM_DESTROY, 0, 0);
+                    }
+
+                    if (g_Keystate[DIK_P] & 0x80) {
+                        //Play media control
+                        mediaControl->Run();
+                    }
                 }
             }
         }
