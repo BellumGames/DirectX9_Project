@@ -15,7 +15,6 @@
 #define DIMOUSE_LEFTBUTTON 0 
 #define WM_GRAPHNOTIFY  WM_APP + 1
 
-
 LPDIRECT3D9             g_pD3D = NULL;
 LPDIRECT3DDEVICE9       g_pd3dDevice = NULL;
 
@@ -53,6 +52,7 @@ struct CUSTOMVERTEX
     float x, y, z;
     float tu, tv;
 };
+
 #define FVF_FLAGS (D3DFVF_XYZ | D3DFVF_TEX1)
 
 CUSTOMVERTEX g_SkyboxMesh[24] =
@@ -257,26 +257,22 @@ VOID ComputeInput(HWND* hWnd)
 
     if (g_Keystate[DIK_UP] & 0x80)
     {
-        PozX -= cos(rot_degreeY) * movmentSpeed;
-        PozZ += movmentSpeed * sin(rot_degreeY);
+        PozZ += 0.5;
     }
 
     if (g_Keystate[DIK_DOWN] & 0x80)
     {
-        PozX += cos(rot_degreeY) * movmentSpeed;
-        PozZ -= movmentSpeed * sin(rot_degreeY);
-    }
-
-    if (g_Keystate[DIK_LEFT] & 0x80)
-    {
-        PozZ += cos(rot_degreeY) * movmentSpeed;
-        PozX += movmentSpeed * sin(rot_degreeY);
+        PozZ -= 0.5;
     }
 
     if (g_Keystate[DIK_RIGHT] & 0x80)
     {
-        PozZ -= cos(rot_degreeY) * movmentSpeed;
-        PozX -= movmentSpeed * sin(rot_degreeY);
+        PozX += 0.5;
+    }
+
+    if (g_Keystate[DIK_LEFT] & 0x80)
+    {
+        PozX -= 0.5;
     }
 
     if (g_Keystate[DIK_Z] & 0x80)
@@ -385,7 +381,6 @@ HRESULT InitGeometry()
     return S_OK;
 }
 
-
 VOID Cleanup()
 {
     if (g_pMeshMaterials != NULL)
@@ -424,7 +419,6 @@ VOID Cleanup()
         g_pD3D->Release();
 }
 
-
 VOID Render()
 {
     g_pd3dDevice->Clear(0, NULL, D3DCLEAR_TARGET | D3DCLEAR_ZBUFFER, D3DCOLOR_XRGB(0, 0, 0), 1.0f, 0);
@@ -443,8 +437,15 @@ VOID Render()
         g_pd3dDevice->GetTransform(D3DTS_WORLD, &matWorld);
         leMat = matWorld;
 
+        D3DXMatrixRotationX(&matWorld, rot_degreeX);
+        leMat *= matWorld;
+
         D3DXMatrixRotationY(&matWorld, rot_degreeY);
         leMat *= matWorld;
+
+        D3DXMatrixRotationZ(&matWorld, rot_degreeZ);
+        leMat *= matWorld;
+
         D3DXMatrixTranslation(&matWorld, PozX, PozY, PozZ);
         leMat *= matWorld;
 
@@ -487,16 +488,16 @@ LRESULT WINAPI MsgProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam)
 
 INT WINAPI WinMain(HINSTANCE hInst, HINSTANCE, LPSTR, INT)
 {
-
     WNDCLASSEX wc = { sizeof(WNDCLASSEX), CS_CLASSDC, MsgProc, 0L, 0L,
                       GetModuleHandle(NULL), NULL, NULL, NULL, NULL,
                       "D3D Proiect", NULL };
     RegisterClassEx(&wc);
 
-
-    HWND hWnd = CreateWindow("D3D Proiect", "D3D Proiect",
+    HWND hWnd = CreateWindow("D3D Proiect", "Bucur Dan-Alexandru: Proiect la SM",
         WS_OVERLAPPEDWINDOW, 100, 100, 1024, 768,
         GetDesktopWindow(), NULL, wc.hInstance, NULL);
+
+    HRESULT hr = CoInitialize(NULL);
 
     if (SUCCEEDED(InitD3D(hWnd)))
     {
@@ -505,7 +506,6 @@ INT WINAPI WinMain(HINSTANCE hInst, HINSTANCE, LPSTR, INT)
         {
             InitDInput(hInst, hWnd);
             InitCamera();
-
 
             ShowWindow(hWnd, SW_SHOWDEFAULT);
             UpdateWindow(hWnd);
@@ -529,6 +529,7 @@ INT WINAPI WinMain(HINSTANCE hInst, HINSTANCE, LPSTR, INT)
             }
         }
     }
+    CoUninitialize();
     UnregisterClass("D3D Proiect", wc.hInstance);
     return 0;
 }
