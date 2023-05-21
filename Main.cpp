@@ -1,127 +1,131 @@
 #include <Windows.h>
 #include <mmsystem.h>
 #include <d3dx9.h>
-#include <dshow.h>   
+#include <d3dx9tex.h>
+#include "camera.h"
 #include <dinput.h>
-#include "Camera.h"
+#include <iostream>
+#include "dshow.h"
 
-//We define an event id 
-#define WM_GRAPHNOTIFY  WM_APP + 1
-
-//Make sure the libraries d3d9.lib and d3dx9.lib are linked
 #pragma comment (lib, "d3d9.lib")
 #pragma comment (lib, "d3dx9.lib")
 #pragma comment (lib, "dinput8.lib")
 #pragma comment (lib, "dxguid.lib")
 
-//-----------------------------------------------------------------------------
-// Global variables
-//-----------------------------------------------------------------------------
+#define DIMOUSE_LEFTBUTTON 0 
+#define WM_GRAPHNOTIFY  WM_APP + 1
 
-LPDIRECT3D9             g_pD3D = NULL; // Used to create the D3DDevice   
-LPDIRECT3DDEVICE9       g_pd3dDevice = NULL; // Our rendering device  
 
-LPD3DXMESH              Mesh = NULL; // Our mesh object in sysmem
-D3DMATERIAL9* MeshMaterials = NULL; // Materials for our mesh
-LPDIRECT3DTEXTURE9* MeshTextures = NULL; // Textures for our mesh
-DWORD                   NumMaterials = 0L;   // Number of mesh materials
-CXCamera* camera; 
+LPDIRECT3D9             g_pD3D = NULL;
+LPDIRECT3DDEVICE9       g_pd3dDevice = NULL;
+
+CXCamera				g_camera = NULL;
+
+LPD3DXMESH              g_pMesh = NULL;
+D3DMATERIAL9* g_pMeshMaterials = NULL;
+LPDIRECT3DTEXTURE9* g_pMeshTextures = NULL;
+DWORD                   g_dwNumMaterials = 0L;
+LPDIRECT3DVERTEXBUFFER9 g_pMeshVBuffer = NULL;
 
 IGraphBuilder* graphBuilder = NULL;
-//Help us to start/stop the play
 IMediaControl* mediaControl = NULL;
-//We receie events in case something happened - during playing, stoping, errors etc..
 IMediaEventEx* mediaEvent = NULL;
-//We can use to fast forward, revert etc..
-IMediaSeeking* mediaSeeking = NULL;
 
-HWND hWnd;
-HDC hdc;
+LPDIRECTINPUT8			g_pDin;
+LPDIRECTINPUTDEVICE8	g_pDinKeyboard;
+LPDIRECTINPUTDEVICE8	g_pDinmouse;
+DIMOUSESTATE			g_pMousestate;
+BYTE					g_Keystate[256];
 
-LPDIRECTINPUT8			g_pDin;							// the pointer to our DirectInput interface
-LPDIRECTINPUTDEVICE8	g_pDinKeyboard;					// the pointer to the keyboard device
+LPDIRECT3DVERTEXBUFFER9	g_pSkyVertexBuffer = NULL;
+LPDIRECT3DTEXTURE9		g_SkyTextures;
 
-LPDIRECT3DSURFACE9		g_pSurface = NULL;			// Our surface on which we load the image
-LPDIRECT3DSURFACE9		g_pBackBuffer = NULL;			// The back buffer
-
-LPCTSTR					g_Path = "crosshair.jpg"; // The path to the image
-D3DXIMAGE_INFO			g_Info;							// Here we will keep the information read from the image file
-
-POINT					g_SurfacePosition;				// The position of the surface
-BYTE					g_Keystate[256];				// the storage for the key-information
-
-LPDIRECTINPUTDEVICE8	g_pDinmouse;					// the pointer to the mouse device
-DIMOUSESTATE			g_pMousestate;					// the storage for the mouse-information
-
-HRESULT InitD3D(HWND hWnd);
-HRESULT InitDInput(HINSTANCE hInstance, HWND hWnd);
-
-VOID DetectInput();
-VOID Render();
-VOID Cleanup();
-VOID CleanDInput();
-
-LRESULT WINAPI MsgProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
-INT WINAPI WinMain(HINSTANCE hInst, HINSTANCE, LPSTR, INT);
+double rot_degreeX = 4.8;
+double rot_degreeY = 4.8;
+double rot_degreeZ = 4.8;
+double movmentSpeed = 0.5;
+float PozX = 0.0f;
+float PozY = -48.0f;
+float PozZ = 0.0f;
 
 struct CUSTOMVERTEX
 {
-    FLOAT x, y, z; //Position
-    FLOAT tu, tv;   // The texture coordinates
+    float x, y, z;
+    float tu, tv;
+};
+#define FVF_FLAGS (D3DFVF_XYZ | D3DFVF_TEX1)
+
+CUSTOMVERTEX g_SkyboxMesh[24] =
+{
+    {-50.0f, -50.0f,  50.0f,  0.0f, 1.0f },
+    {-50.0f,  50.0f,  50.0f,  0.0f, 0.0f },
+    { 50.0f, -50.0f,  50.0f,  1.0f, 1.0f },
+    { 50.0f,  50.0f,  50.0f,  1.0f, 0.0f },
+    { 50.0f, -50.0f, -50.0f,  0.0f, 1.0f },
+    { 50.0f,  50.0f, -50.0f,  0.0f, 0.0f },
+    {-50.0f, -50.0f, -50.0f,  1.0f, 1.0f },
+    {-50.0f,  50.0f, -50.0f,  1.0f, 0.0f },
+    {-50.0f, -50.0f, -50.0f,  0.0f, 1.0f },
+    {-50.0f,  50.0f, -50.0f,  0.0f, 0.0f },
+    {-50.0f, -50.0f,  50.0f,  1.0f, 1.0f },
+    {-50.0f,  50.0f,  50.0f,  1.0f, 0.0f },
+    { 50.0f, -50.0f,  50.0f,  0.0f, 1.0f },
+    { 50.0f,  50.0f,  50.0f,  0.0f, 0.0f },
+    { 50.0f, -50.0f, -50.0f,  1.0f, 1.0f },
+    { 50.0f,  50.0f, -50.0f,  1.0f, 0.0f },
+    {-50.0f,  50.0f,  50.0f,  0.0f, 1.0f },
+    {-50.0f,  50.0f, -50.0f,  0.0f, 0.0f },
+    { 50.0f,  50.0f,  50.0f,  1.0f, 1.0f },
+    { 50.0f,  50.0f, -50.0f,  1.0f, 0.0f },
+    {-50.0f, -50.0f, -50.0f,  0.0f, 1.0f },
+    {-50.0f, -50.0f,  50.0f,  0.0f, 0.0f },
+    { 50.0f, -50.0f, -50.0f,  1.0f, 1.0f },
+    { 50.0f, -50.0f,  50.0f,  1.0f, 0.0f }
 };
 
-#define D3DFVF_CUSTOMVERTEX (D3DFVF_XYZ|D3DFVF_DIFFUSE|D3DFVF_TEX1)
+HRESULT BuildSkybox()
+{
+    HRESULT hRet;
+    hRet = g_pd3dDevice->CreateVertexBuffer(sizeof(CUSTOMVERTEX) * 24, 0, FVF_FLAGS, D3DPOOL_MANAGED, &g_pSkyVertexBuffer, NULL);
+    if (FAILED(hRet))
+    {
+        MessageBox(NULL, "Failed to create the vertex buffer!", "Error in BuildSkybox()", MB_OK | MB_ICONSTOP);
+        return false;
+    }
 
-CUSTOMVERTEX SkyBox[24] = {
-    //Fata lateral stanga
-    { -1.0f, -1.0f, -1.0f, 1, 0 }, //rosu
-    { -1.0f, 1.0f, -1.0f, 1, 1 }, //galben
-    { -1.0f, -1.0f, 1.0f, 0, 0 }, //albastru
-    { -1.0f, 1.0f, 1.0f, 0, 1 },  //verde
+    void* pVertices = NULL;
+    g_pSkyVertexBuffer->Lock(0, sizeof(CUSTOMVERTEX) * 24, (void**)&pVertices, 0);
+    memcpy(pVertices, g_SkyboxMesh, sizeof(CUSTOMVERTEX) * 24);
+    g_pSkyVertexBuffer->Unlock();
 
-    //Fata din fata
-    { 1.0f, -1.0f, 1.0f, 0, 0 }, //rosu
-    { 1.0f, 1.0f, 1.0f, 0, 1 }, //galben
-    { -1.0f, -1.0f, 1.0f, 1, 0 }, //albastru
-    { -1.0f, 1.0f, 1.0f, 1, 1 },  //verde
+    hRet = D3DXCreateTextureFromFile(g_pd3dDevice, ("sabaton.bmp"), &g_SkyTextures);
 
-    //Fata laterala dreapta
-    { 1.0f, -1.0f, 1.0f, 1, 0 }, //rosu
-    { 1.0f, 1.0f, 1.0f, 1, 1 }, //galben
-    { 1.0f, -1.0f, -1.0f, 0, 0 }, //albastru
-    { -1.0f, 1.0f, 1.0f, 0, 1 },  //verde
+    if (FAILED(hRet))
+    {
+        MessageBox(NULL, "Failed to open 1 or more images files!", "Error Opening Texture Files", MB_OK | MB_ICONSTOP);
+        return E_FAIL;
+    }
 
-    //Fata din spate
-    { 1.0f, -1.0f, -1.0f, 1, 0 }, //rosu
-    { 1.0f, 1.0f, -1.0f, 1, 1 }, //galben
-    { -1.0f, -1.0f, -1.0f, 0, 0 }, //albastru
-    { -1.0f, 1.0f, -1.0f, 0, 1 },  //verde
+    return S_OK;
+}
 
-    //Fata sus
-    { -1.0f, 1.0f, -1.0f, 1, 0 }, //rosu
-    { 1.0f, 1.0f, -1.0f, 1, 1 }, //galben
-    { -1.0f, 1.0f, 1.0f, 0, 0 }, //albastru
-    { 1.0f, 1.0f, 1.0f, 0, 1 },  //verde
+VOID RenderSkyBox()
+{
+    g_pd3dDevice->SetFVF(FVF_FLAGS);
+    g_pd3dDevice->SetStreamSource(0, g_pSkyVertexBuffer, 0, sizeof(CUSTOMVERTEX));
 
-    //Fata jos
-    { 1.0f, -1.0f, -1.0f, 1, 0 }, //rosu
-    { -1.0f, -1.0f, -1.0f, 1, 1 }, //galben
-    { 1.0f, -1.0f, 1.0f, 0, 0 }, //albastru
-    { -1.0f, -1.0f, 1.0f, 0, 1 }  //verde
-};
+    for (ULONG i = 0; i < 6; ++i)
+    {
+        g_pd3dDevice->SetTexture(0, g_SkyTextures);
+        g_pd3dDevice->DrawPrimitive(D3DPT_TRIANGLESTRIP, i * 4, 2);
+    }
+}
 
-//-----------------------------------------------------------------------------
-// Name: InitD3D()
-// Desc: Initializes Direct3D
-//-----------------------------------------------------------------------------
 HRESULT InitD3D(HWND hWnd)
 {
-    // Create the D3D object.
     if (NULL == (g_pD3D = Direct3DCreate9(D3D_SDK_VERSION)))
         return E_FAIL;
 
-    // Set up the structure used to create the D3DDevice. Since we are now
-    // using more complex geometry, we will create a device with a zbuffer.
     D3DPRESENT_PARAMETERS d3dpp;
     ZeroMemory(&d3dpp, sizeof(d3dpp));
     d3dpp.Windowed = TRUE;
@@ -130,7 +134,6 @@ HRESULT InitD3D(HWND hWnd)
     d3dpp.EnableAutoDepthStencil = TRUE;
     d3dpp.AutoDepthStencilFormat = D3DFMT_D16;
 
-    // Create the D3DDevice
     if (FAILED(g_pD3D->CreateDevice(D3DADAPTER_DEFAULT, D3DDEVTYPE_HAL, hWnd,
         D3DCREATE_SOFTWARE_VERTEXPROCESSING,
         &d3dpp, &g_pd3dDevice)))
@@ -141,265 +144,268 @@ HRESULT InitD3D(HWND hWnd)
             return E_FAIL;
     }
 
-    // Read the information from the image
-    if (D3DXGetImageInfoFromFile(g_Path, &g_Info) == D3D_OK) {
-
-        // Create a surface using the information read from the image
-        g_pd3dDevice->CreateOffscreenPlainSurface(g_Info.Width, g_Info.Height, g_Info.Format, D3DPOOL_SYSTEMMEM, &g_pSurface, NULL);
-
-        // Get the backbuffer so we can copy the contents of our surface
-        g_pd3dDevice->GetBackBuffer(0, 0, D3DBACKBUFFER_TYPE_MONO, &g_pBackBuffer);
-
-        // Load the image in our surface
-        if (D3DXLoadSurfaceFromFile(g_pSurface, NULL, NULL, g_Path, NULL, D3DX_DEFAULT, 0, NULL) != D3D_OK) {
-
-            //If the image could not be loaded show an error message and exit
-            MessageBox(NULL, "An exception occured while loading image info from file", "Error", 0);
-            return E_FAIL;
-
-        }
-    }
-    else {
-
-        // If the information could not be read from the file show an error message and exit
-        MessageBox(NULL, "An exception occured while loading image info from file", "Error", 0);
-        return E_FAIL;
-
-    }
-
-    // Turn on the zbuffer`
     g_pd3dDevice->SetRenderState(D3DRS_ZENABLE, TRUE);
 
-    // Turn on ambient lighting 
     g_pd3dDevice->SetRenderState(D3DRS_AMBIENT, 0xffffffff);
 
-
     return S_OK;
 }
 
-HRESULT InitDirectShow(HWND hWnd)
-{
-    //Create Filter Graph   
-    HRESULT hr = CoCreateInstance(CLSID_FilterGraph, NULL,
-        CLSCTX_INPROC_SERVER, IID_IGraphBuilder, (void**)&graphBuilder);
+HRESULT InitDShow(HWND hWnd) {
 
-    //Create Media Control and Events   
+    HRESULT hr = CoCreateInstance(CLSID_FilterGraph,
+        NULL,
+        CLSCTX_INPROC_SERVER,
+        IID_IGraphBuilder,
+        (void**)&graphBuilder);
+
     hr = graphBuilder->QueryInterface(IID_IMediaControl, (void**)&mediaControl);
     hr = graphBuilder->QueryInterface(IID_IMediaEventEx, (void**)&mediaEvent);
-    hr = graphBuilder->QueryInterface(IID_IMediaSeeking, (void**)&mediaSeeking);
 
-    //Load a file
     hr = graphBuilder->RenderFile(L"tiger.avi", NULL);
-
-    //Set window for events  - basically we tell our event in case you raise an event use the following event id.
     mediaEvent->SetNotifyWindow((OAHWND)hWnd, WM_GRAPHNOTIFY, 0);
-
     return S_OK;
 }
 
-//-----------------------------------------------------------------------------
-// Name: InitDInput(HINSTANCE hInstance, HWND hWnd)
-// Desc: Initializes DirectInput
-//-----------------------------------------------------------------------------
 HRESULT InitDInput(HINSTANCE hInstance, HWND hWnd)
 {
-    // create the DirectInput interface
-    DirectInput8Create(hInstance,    // the handle to the application
-        DIRECTINPUT_VERSION,    // the compatible version
-        IID_IDirectInput8,    // the DirectInput interface version
-        (void**)&g_pDin,    // the pointer to the interface
-        NULL);    // COM stuff, so we'll set it to NULL
+    DirectInput8Create(hInstance,
+        DIRECTINPUT_VERSION,
+        IID_IDirectInput8,
+        (void**)&g_pDin,
+        NULL);
 
-    // create the keyboard device
-    g_pDin->CreateDevice(GUID_SysKeyboard,    // the default keyboard ID being used
-        &g_pDinKeyboard,    // the pointer to the device interface
-        NULL);    // COM stuff, so we'll set it to NULL
+    g_pDin->CreateDevice(GUID_SysKeyboard,
+        &g_pDinKeyboard,
+        NULL);
 
-    // create the mouse device
     g_pDin->CreateDevice(GUID_SysMouse,
-        &g_pDinmouse,  // the pointer to the device interface
-        NULL); // COM stuff, so we'll set it to NULL
+        &g_pDinmouse,
+        NULL);
 
-    // set the data format to keyboard format
     g_pDinKeyboard->SetDataFormat(&c_dfDIKeyboard);
-
-    // set the data format to mouse format
-    g_pDinmouse->SetDataFormat(&c_dfDIMouse);
-
-    // set the control we will have over the keyboard
     g_pDinKeyboard->SetCooperativeLevel(hWnd, DISCL_NONEXCLUSIVE | DISCL_FOREGROUND);
 
-    // set the control we will have over the mouse
-    g_pDinmouse->SetCooperativeLevel(hWnd, DISCL_EXCLUSIVE | DISCL_FOREGROUND);
+    g_pDinmouse->SetDataFormat(&c_dfDIMouse);
+    g_pDinmouse->SetCooperativeLevel(hWnd, DISCL_NONEXCLUSIVE | DISCL_FOREGROUND);
 
     return S_OK;
 }
 
-//-----------------------------------------------------------------------------
-// Name: DetectInput(void)
-// Desc: This is the function that gets the latest input data
-//-----------------------------------------------------------------------------
 VOID DetectInput()
 {
-    // get access if we don't have it already
     g_pDinKeyboard->Acquire();
     g_pDinmouse->Acquire();
 
-    // get the input data
     g_pDinKeyboard->GetDeviceState(256, (LPVOID)g_Keystate);
     g_pDinmouse->GetDeviceState(sizeof(DIMOUSESTATE), (LPVOID)&g_pMousestate);
-
-
 }
 
-//-----------------------------------------------------------------------------
-// Name: CleanDInput(void)
-// Desc: This is the function that closes DirectInput
-//-----------------------------------------------------------------------------
 VOID CleanDInput()
 {
-    g_pDinKeyboard->Unacquire();    // make sure the keyboard is unacquired
-    g_pDinmouse->Unacquire();    // make sure the mouse in unacquired
-    g_pDin->Release();    // close DirectInput before exiting
+    g_pDinKeyboard->Unacquire();
+    g_pDinmouse->Unacquire();
+    g_pDin->Release();
 }
 
-
-void InitiateCamera()
+HRESULT InitCamera()
 {
-    camera = new CXCamera(g_pd3dDevice);
-
-    // Set up our view matrix. A view matrix can be defined given an eye point,
-    // a point to lookat, and a direction for which way is up. Here, we set the
-    // eye five units back along the z-axis and up three units, look at the 
-    // origin, and define "up" to be in the y-direction.
-    D3DXVECTOR3 vEyePt(0.0f, 3.0f, -30.0f);
-    D3DXVECTOR3 vLookatPt(0.0f, 0.0f, 0.0f);
+    D3DXVECTOR3 vPosition(0.0f, -46.0f, -23.0f);
+    D3DXVECTOR3 vLookatPt(0.0f, -49.0f, 1.0f);
     D3DXVECTOR3 vUpVec(0.0f, 1.0f, 0.0f);
-    D3DXMATRIXA16 matView;
 
-    camera->LookAtPos(&vEyePt, &vLookatPt, &vUpVec);
+    g_camera = CXCamera(g_pd3dDevice);
+    g_camera.SetPosition(vPosition.x, vPosition.y, vPosition.z);
+    g_camera.LookAtPos(&vPosition, &vLookatPt, &vUpVec);
+
+    return S_OK;
 }
 
-//-----------------------------------------------------------------------------
-// Name: InitGeometry()
-// Desc: Load the mesh and build the material and texture arrays
-//-----------------------------------------------------------------------------
+VOID SetupMatrices()
+{
+    D3DXMATRIXA16 matProj;
+    D3DXMatrixPerspectiveFovLH(&matProj, D3DX_PI / 4, 1.0f, 1.0f, 300.0f);
+    g_pd3dDevice->SetTransform(D3DTS_PROJECTION, &matProj);
+}
+
+VOID ComputeInput(HWND* hWnd)
+{
+    if (g_pMousestate.rgbButtons[DIMOUSE_LEFTBUTTON] & 0x80)
+    {
+        if (g_pMousestate.lX < 0)
+            g_camera.RotateRight(D3DXToRadian(-1.0f));
+        else if (g_pMousestate.lX > 0)
+            g_camera.RotateRight(D3DXToRadian(1.0f));
+
+        if (g_pMousestate.lY < 0)
+            g_camera.RotateDown(D3DXToRadian(-1.0f));
+        else if (g_pMousestate.lY > 0)
+            g_camera.RotateDown(D3DXToRadian(1.0f));
+    }
+
+    if (g_Keystate[DIK_W] & 0x80)
+        g_camera.MoveForward(1.0f);
+
+    if (g_Keystate[DIK_S] & 0x80)
+        g_camera.MoveForward(-1.0f);
+
+    if (g_Keystate[DIK_A] & 0x80)
+        g_camera.MoveRight(-1.0f);
+
+    if (g_Keystate[DIK_D] & 0x80)
+        g_camera.MoveRight(1.0f);
+
+    if (g_Keystate[DIK_UP] & 0x80)
+    {
+        PozX -= cos(rot_degreeY) * movmentSpeed;
+        PozZ += movmentSpeed * sin(rot_degreeY);
+    }
+
+    if (g_Keystate[DIK_DOWN] & 0x80)
+    {
+        PozX += cos(rot_degreeY) * movmentSpeed;
+        PozZ -= movmentSpeed * sin(rot_degreeY);
+    }
+
+    if (g_Keystate[DIK_LEFT] & 0x80)
+    {
+        PozZ += cos(rot_degreeY) * movmentSpeed;
+        PozX += movmentSpeed * sin(rot_degreeY);
+    }
+
+    if (g_Keystate[DIK_RIGHT] & 0x80)
+    {
+        PozZ -= cos(rot_degreeY) * movmentSpeed;
+        PozX -= movmentSpeed * sin(rot_degreeY);
+    }
+
+    if (g_Keystate[DIK_Z] & 0x80)
+    {
+        PozY += 0.5f;
+    }
+
+    if (g_Keystate[DIK_X] & 0x80)
+    {
+        PozY -= 0.5f;
+    }
+
+    if (g_Keystate[DIK_U] & 0x80)
+    {
+        rot_degreeX -= D3DXToRadian(1);
+    }
+
+    if (g_Keystate[DIK_J] & 0x80)
+    {
+        rot_degreeX += D3DXToRadian(1);
+    }
+
+    if (g_Keystate[DIK_I] & 0x80)
+    {
+        rot_degreeY -= D3DXToRadian(1);
+    }
+
+    if (g_Keystate[DIK_K] & 0x80)
+    {
+        rot_degreeY += D3DXToRadian(1);
+    }
+
+    if (g_Keystate[DIK_O] & 0x80)
+    {
+        rot_degreeZ -= D3DXToRadian(1);
+    }
+
+    if (g_Keystate[DIK_L] & 0x80)
+    {
+        rot_degreeZ += D3DXToRadian(1);
+    }
+
+    if (g_Keystate[DIK_R] & 0x80)
+    {
+        InitCamera();
+        rot_degreeX = 4.8;
+        rot_degreeY = 4.8;
+        rot_degreeZ = 4.8;
+        PozX = 0.0f;
+        PozY = -48.0f;
+        PozZ = 0.0f;
+    }
+
+    if (g_Keystate[DIK_P] & 0x80)
+    {
+        mediaControl->Run();
+    }
+
+    if (g_Keystate[DIK_ESCAPE] & 0x80)
+        PostMessage(*hWnd, WM_DESTROY, 0, 0);
+}
+
 HRESULT InitGeometry()
 {
     LPD3DXBUFFER pD3DXMtrlBuffer;
 
-    // Load the mesh from the specified file
     if (FAILED(D3DXLoadMeshFromX("PanzerTiger.x", D3DXMESH_SYSTEMMEM,
         g_pd3dDevice, NULL,
-        &pD3DXMtrlBuffer, NULL, &NumMaterials,
-        &Mesh)))
+        &pD3DXMtrlBuffer, NULL, &g_dwNumMaterials,
+        &g_pMesh)))
     {
-        // If model is not in current folder, try parent folder
-        if (FAILED(D3DXLoadMeshFromX("..\\PanzerTiger.x", D3DXMESH_SYSTEMMEM,
-            g_pd3dDevice, NULL,
-            &pD3DXMtrlBuffer, NULL, &NumMaterials,
-            &Mesh)))
-        {
-            MessageBox(NULL, "Could not find PanzerTiger.x", "Meshes.exe", MB_OK);
-            return E_FAIL;
-        }
+        MessageBox(NULL, "Could not find PanzerTiger.x", "Meshes.exe", MB_OK);
+        return E_FAIL;
     }
 
-    // We need to extract the material properties and texture names from the 
-    // pD3DXMtrlBuffer
     D3DXMATERIAL* d3dxMaterials = (D3DXMATERIAL*)pD3DXMtrlBuffer->GetBufferPointer();
-    MeshMaterials = new D3DMATERIAL9[NumMaterials];
-    MeshTextures = new LPDIRECT3DTEXTURE9[NumMaterials];
 
-    for (DWORD i = 0; i < NumMaterials; i++)
+    g_pMeshMaterials = new D3DMATERIAL9[g_dwNumMaterials];
+    g_pMeshTextures = new LPDIRECT3DTEXTURE9[g_dwNumMaterials];
+
+    for (DWORD i = 0; i < g_dwNumMaterials; i++)
     {
-        // Copy the material
-        MeshMaterials[i] = d3dxMaterials[i].MatD3D;
+        g_pMeshMaterials[i] = d3dxMaterials[i].MatD3D;
+        g_pMeshMaterials[i].Ambient = g_pMeshMaterials[i].Diffuse;
 
-        // Set the ambient color for the material (D3DX does not do this)
-        MeshMaterials[i].Ambient = MeshMaterials[i].Diffuse;
-
-        MeshTextures[i] = NULL;
+        g_pMeshTextures[i] = NULL;
         if (d3dxMaterials[i].pTextureFilename != NULL &&
             lstrlen(d3dxMaterials[i].pTextureFilename) > 0)
         {
-            // Create the texture
+
             if (FAILED(D3DXCreateTextureFromFile(g_pd3dDevice,
                 d3dxMaterials[i].pTextureFilename,
-                &MeshTextures[i])))
+                &g_pMeshTextures[i])))
             {
-                // If texture is not in current folder, try parent folder
-                const TCHAR* strPrefix = TEXT("..\\");
-                const int lenPrefix = lstrlen(strPrefix);
-                TCHAR strTexture[MAX_PATH];
-                lstrcpyn(strTexture, strPrefix, MAX_PATH);
-                lstrcpyn(strTexture + lenPrefix, d3dxMaterials[i].pTextureFilename, MAX_PATH - lenPrefix);
-                // If texture is not in current folder, try parent folder
-                if (FAILED(D3DXCreateTextureFromFile(g_pd3dDevice,
-                    strTexture,
-                    &MeshTextures[i])))
-                {
-                    MessageBox(NULL, "Could not find texture map", "Meshes.exe", MB_OK);
-                }
+                MessageBox(NULL, "Could not find texture map", "Meshes.exe", MB_OK);
             }
+
         }
     }
 
-    // Done with the material buffer
     pD3DXMtrlBuffer->Release();
 
-    //Declare object of type VertexBuffer
-    LPDIRECT3DVERTEXBUFFER9 VertexBuffer = NULL;
-    //The pointer to the current element in the array in VertexBuffer
-    BYTE* Vertices = NULL;
-    //Get the size of one element in the array of VertexBuffer 
-    DWORD FVFVertexSize = D3DXGetFVFVertexSize(Mesh->GetFVF());
-    //Get the VertexBuffer
-    Mesh->GetVertexBuffer(&VertexBuffer);
-    //Get the address of the first element in the array of VertexBuffer
-    VertexBuffer->Lock(0, 0, (VOID**)&Vertices, D3DLOCK_DISCARD);
-
-    /*
-        Avem access
-    */
-
-    VertexBuffer->Unlock();
-    VertexBuffer->Release();
-
-    InitiateCamera();
+    if (BuildSkybox() == E_FAIL)
+        return E_FAIL;
 
     return S_OK;
 }
 
 
-
-
-//-----------------------------------------------------------------------------
-// Name: Cleanup()
-// Desc: Releases all previously initialized objects
-//-----------------------------------------------------------------------------
 VOID Cleanup()
 {
-    if (MeshMaterials != NULL)
-        delete[] MeshMaterials;
+    if (g_pMeshMaterials != NULL)
+        delete[] g_pMeshMaterials;
 
-    if (MeshTextures)
+    if (g_pMeshTextures)
     {
-        for (DWORD i = 0; i < NumMaterials; i++)
+        for (DWORD i = 0; i < g_dwNumMaterials; i++)
         {
-            if (MeshTextures[i])
-                MeshTextures[i]->Release();
+            if (g_pMeshTextures[i])
+                g_pMeshTextures[i]->Release();
         }
-        delete[] MeshTextures;
+        delete[] g_pMeshTextures;
     }
-    if (Mesh != NULL)
-        Mesh->Release();
 
-    if (g_pd3dDevice != NULL)
-        g_pd3dDevice->Release();
+    if (g_pMesh != NULL)
+        g_pMesh->Release();
 
-    if (g_pD3D != NULL)
-        g_pD3D->Release();
+    g_SkyTextures->Release();
+    g_SkyTextures = NULL;
 
     if (graphBuilder)
         graphBuilder->Release();
@@ -409,164 +415,102 @@ VOID Cleanup()
 
     if (mediaEvent)
         mediaEvent->Release();
+
+    if (g_pd3dDevice != NULL)
+        g_pd3dDevice->Release();
+
+
+    if (g_pD3D != NULL)
+        g_pD3D->Release();
 }
 
 
-VOID SetupWorldMatrix()
-{
-    // For our world matrix, we will just leave it as the identity
-    D3DXMATRIXA16 matWorld;
-    D3DXMatrixRotationY(&matWorld, timeGetTime() / 1000.0f);
-    g_pd3dDevice->SetTransform(D3DTS_WORLD, &matWorld);
-}
-
-float distance;
-int direction = 1;//1 forward, -1 backward
-int maximumStepDirection = 300;
-int currentStep = 0;
-
-void SetupViewMatrix()
-{
-    //Below is a simulation of mooving forward - backwards. This is done by calling the camera method;
-    distance = 0.01 * direction;
-    currentStep = currentStep + direction;
-    if (currentStep > maximumStepDirection)
-    {
-        direction = -1;
-    }
-    if (currentStep < 0)
-        direction = 1;
-    camera->MoveForward(distance);
-
-    //Each time you render you must call update camera
-    //By calling camera update the View Matrix is set;
-    camera->Update();
-}
-
-
-void SetupProjectionMatrix()
-{
-    // For the projection matrix, we set up a perspective transform (which
-    // transforms geometry from 3D view space to 2D viewport space, with
-    // a perspective divide making objects smaller in the distance). To build
-    // a perpsective transform, we need the field of view (1/4 pi is common),
-    // the aspect ratio, and the near and far clipping planes (which define at
-    // what distances geometry should be no longer be rendered).
-    D3DXMATRIXA16 matProj;
-    D3DXMatrixPerspectiveFovLH(&matProj, D3DX_PI / 4, 1.0f, 1.0f, 100.0f);
-    g_pd3dDevice->SetTransform(D3DTS_PROJECTION, &matProj);
-}
-
-//-----------------------------------------------------------------------------
-// Name: SetupMatrices()
-// Desc: Sets up the world, view, and projection transform matrices.
-//-----------------------------------------------------------------------------
-VOID SetupMatrices()
-{
-    SetupWorldMatrix();
-    SetupViewMatrix();
-    SetupProjectionMatrix();
-}
-
-//-----------------------------------------------------------------------------
-// Name: Render()
-// Desc: Draws the scene
-//-----------------------------------------------------------------------------
 VOID Render()
 {
-    // Clear the backbuffer and the zbuffer
-    g_pd3dDevice->Clear(0, NULL, D3DCLEAR_TARGET | D3DCLEAR_ZBUFFER,
-        D3DCOLOR_XRGB(0, 0, 255), 1.0f, 0);
+    g_pd3dDevice->Clear(0, NULL, D3DCLEAR_TARGET | D3DCLEAR_ZBUFFER, D3DCOLOR_XRGB(0, 0, 0), 1.0f, 0);
 
-    // Begin the scene
     if (SUCCEEDED(g_pd3dDevice->BeginScene()))
     {
-        // Setup the world, view, and projection matrices
         SetupMatrices();
 
-        //Copy the contents of the surface into the backbuffer
-        g_pd3dDevice->UpdateSurface(g_pSurface, NULL, g_pBackBuffer, &g_SurfacePosition);
+        D3DXMATRIXA16 matWorldOrig;
+        g_pd3dDevice->GetTransform(D3DTS_WORLD, &matWorldOrig);
 
-        // Meshes are divided into subsets, one for each material. Render them in
-        // a loop
-        for (DWORD i = 0; i < NumMaterials; i++)
+        RenderSkyBox();
+
+        D3DXMATRIXA16 matWorld, leMat;
+
+        g_pd3dDevice->GetTransform(D3DTS_WORLD, &matWorld);
+        leMat = matWorld;
+
+        D3DXMatrixRotationY(&matWorld, rot_degreeY);
+        leMat *= matWorld;
+        D3DXMatrixTranslation(&matWorld, PozX, PozY, PozZ);
+        leMat *= matWorld;
+
+        g_pd3dDevice->SetTransform(D3DTS_WORLD, &leMat);
+
+        g_pd3dDevice->SetFVF(g_pMesh->GetFVF());
+        for (DWORD i = 0; i < g_dwNumMaterials; i++)
         {
-            // Set the material and texture for this subset
-            g_pd3dDevice->SetMaterial(&MeshMaterials[i]);
-            g_pd3dDevice->SetTexture(0, MeshTextures[i]);
-
-            // Draw the mesh subset
-            Mesh->DrawSubset(i);
+            g_pd3dDevice->SetMaterial(&g_pMeshMaterials[i]);
+            g_pd3dDevice->SetTexture(0, g_pMeshTextures[i]);
+            g_pMesh->DrawSubset(i);
         }
 
-        // End the scene
+        g_camera.Update();
+
+        g_pd3dDevice->SetTransform(D3DTS_WORLD, &matWorldOrig);
+
         g_pd3dDevice->EndScene();
     }
 
-    // Present the backbuffer contents to the display
     g_pd3dDevice->Present(NULL, NULL, NULL, NULL);
 }
 
 
-
-
-//-----------------------------------------------------------------------------
-// Name: MsgProc()
-// Desc: The window's message handler
-//-----------------------------------------------------------------------------
 LRESULT WINAPI MsgProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam)
 {
     switch (msg)
     {
-        case WM_DESTROY:
-            Cleanup();
-            CleanDInput();
-            PostQuitMessage(0);
-            return 0;
+    case WM_DESTROY:
+        Cleanup();
+        CleanDInput();
+        PostQuitMessage(0);
+        return 0;
     }
+
     return DefWindowProc(hWnd, msg, wParam, lParam);
 }
 
 
-//-----------------------------------------------------------------------------
-// Name: WinMain()
-// Desc: The application's entry point
-//-----------------------------------------------------------------------------
+
 INT WINAPI WinMain(HINSTANCE hInst, HINSTANCE, LPSTR, INT)
 {
-    // Register the window class
+
     WNDCLASSEX wc = { sizeof(WNDCLASSEX), CS_CLASSDC, MsgProc, 0L, 0L,
                       GetModuleHandle(NULL), NULL, NULL, NULL, NULL,
-                      "D3D Tutorial", NULL };
+                      "D3D Proiect", NULL };
     RegisterClassEx(&wc);
 
-    // Create the application's window
-    HWND hWnd = CreateWindow("D3D Tutorial", "Bucur Dan-Alexandru: Proiect la SM",
-        WS_OVERLAPPEDWINDOW, 100, 100, 800, 800,
+
+    HWND hWnd = CreateWindow("D3D Proiect", "D3D Proiect",
+        WS_OVERLAPPEDWINDOW, 100, 100, 1024, 768,
         GetDesktopWindow(), NULL, wc.hInstance, NULL);
 
-    //!!!!!! This is very important and must be called prior to any initialization of DirectShow
-    HRESULT hr = CoInitialize(NULL);
-
-    hdc = GetDC(hWnd);
-
-    // Initialize Direct3D
     if (SUCCEEDED(InitD3D(hWnd)))
     {
-        InitDInput(hInst, hWnd);
 
-        // Create the scene geometry
         if (SUCCEEDED(InitGeometry()))
         {
-            //Init video
-            if (FAILED(InitDirectShow(hWnd)))
-                return 0;
+            InitDInput(hInst, hWnd);
+            InitCamera();
 
-            // Show the window
+
             ShowWindow(hWnd, SW_SHOWDEFAULT);
             UpdateWindow(hWnd);
+            InitDShow(hWnd);
 
-            // Enter the message loop
             MSG msg;
             ZeroMemory(&msg, sizeof(msg));
             while (msg.message != WM_QUIT)
@@ -576,29 +520,15 @@ INT WINAPI WinMain(HINSTANCE hInst, HINSTANCE, LPSTR, INT)
                     TranslateMessage(&msg);
                     DispatchMessage(&msg);
                 }
-                else 
+                else
                 {
-                    DetectInput();    // update the input data before rendering
+                    DetectInput();
+                    ComputeInput(&hWnd);
                     Render();
-
-                    g_SurfacePosition.x += g_pMousestate.lX;
-                    g_SurfacePosition.y += g_pMousestate.lY;
-
-                    if (g_Keystate[DIK_ESCAPE] & 0x80) {
-                        PostMessage(hWnd, WM_DESTROY, 0, 0);
-                    }
-
-                    if (g_Keystate[DIK_P] & 0x80) {
-                        //Play media control
-                        mediaControl->Run();
-                    }
                 }
             }
         }
     }
-
-    CoUninitialize();
-
-    UnregisterClass("D3D Tutorial", wc.hInstance);
+    UnregisterClass("D3D Proiect", wc.hInstance);
     return 0;
 }
