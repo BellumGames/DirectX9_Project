@@ -37,7 +37,7 @@ DIMOUSESTATE			g_pMousestate;
 BYTE					g_Keystate[256];
 
 LPDIRECT3DVERTEXBUFFER9	g_pSkyVertexBuffer = NULL;
-LPDIRECT3DTEXTURE9		g_SkyTextures;
+LPDIRECT3DTEXTURE9		g_SkyTextures[6];
 
 double rot_degreeX = 4.8;
 double rot_degreeY = 4.8;
@@ -98,7 +98,12 @@ HRESULT BuildSkybox()
     memcpy(pVertices, g_SkyboxMesh, sizeof(CUSTOMVERTEX) * 24);
     g_pSkyVertexBuffer->Unlock();
 
-    hRet = D3DXCreateTextureFromFile(g_pd3dDevice, ("sabaton.bmp"), &g_SkyTextures);
+    hRet = D3DXCreateTextureFromFile(g_pd3dDevice, ("front.bmp"), &g_SkyTextures[0]);
+    hRet |= D3DXCreateTextureFromFile(g_pd3dDevice, ("back.bmp"), &g_SkyTextures[1]);
+    hRet |= D3DXCreateTextureFromFile(g_pd3dDevice, ("left.bmp"), &g_SkyTextures[2]);
+    hRet |= D3DXCreateTextureFromFile(g_pd3dDevice, ("right.bmp"), &g_SkyTextures[3]);
+    hRet |= D3DXCreateTextureFromFile(g_pd3dDevice, ("top.bmp"), &g_SkyTextures[4]);
+    hRet |= D3DXCreateTextureFromFile(g_pd3dDevice, ("bottom.bmp"), &g_SkyTextures[5]);
 
     if (FAILED(hRet))
     {
@@ -116,7 +121,7 @@ VOID RenderSkyBox()
 
     for (ULONG i = 0; i < 6; ++i)
     {
-        g_pd3dDevice->SetTexture(0, g_SkyTextures);
+        g_pd3dDevice->SetTexture(0, g_SkyTextures[i]);
         g_pd3dDevice->DrawPrimitive(D3DPT_TRIANGLESTRIP, i * 4, 2);
     }
 }
@@ -399,8 +404,11 @@ VOID Cleanup()
     if (g_pMesh != NULL)
         g_pMesh->Release();
 
-    g_SkyTextures->Release();
-    g_SkyTextures = NULL;
+    for (int i = 0; i < 6; i++)
+    {
+        g_SkyTextures[i]->Release();
+        g_SkyTextures[i] = NULL;
+    }
 
     if (graphBuilder)
         graphBuilder->Release();

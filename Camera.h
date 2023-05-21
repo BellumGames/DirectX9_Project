@@ -28,7 +28,7 @@ public:
 	CXCamera(LPDIRECT3DDEVICE9 pDevice);
 	HRESULT Update();
 
-	void RotateDown(float fAngle);// in radian nu grade
+	void RotateDown(float fAngle);
 	void RotateRight(float fAngle);
 	void Roll(float fAngle);
 	void MoveForward(float fDist);
